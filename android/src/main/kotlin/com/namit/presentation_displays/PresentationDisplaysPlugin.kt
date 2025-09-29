@@ -19,10 +19,14 @@ import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.PluginRegistry
 import org.json.JSONObject
 
-/** PresentationDisplaysPlugin */
+/**
+ * PresentationDisplaysPlugin
+ *
+ * Note: Legacy v1 registrar-based registration was removed. This plugin relies on
+ * the Flutter v2 embedding APIs only.
+ */
 class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
 
   private lateinit var channel: MethodChannel
@@ -50,19 +54,7 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
     private const val viewTypeEventsId = "presentation_displays_plugin_events"
     private var displayManager: DisplayManager? = null
 
-    /** @hide */
-    @Suppress("unused", "DEPRECATION")
-    @JvmStatic
-    fun registerWith(registrar: PluginRegistry.Registrar) {
-      val channel = MethodChannel(registrar.messenger(), viewTypeId)
-      channel.setMethodCallHandler(PresentationDisplaysPlugin())
-
-      val eventChannel = EventChannel(registrar.messenger(), viewTypeEventsId)
-      displayManager =
-          registrar.activity()!!.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-      val displayConnectedStreamHandler = DisplayConnectedStreamHandler(displayManager)
-      eventChannel.setStreamHandler(displayConnectedStreamHandler)
-    }
+    // v1 embedding `registerWith` removed
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {

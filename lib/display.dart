@@ -2,15 +2,15 @@ Display displayFromJson(Map<String, dynamic> json) => Display(
     displayId: json['displayId'],
     flag: json['flags'],
     name: json['name'],
-    rotation: json['rotation']);
-
-/// for release please check response from invokeMethod
-Display displayReleaseFromJson(Map<String, dynamic> json) => Display(
-    displayId: json['a'],
-    flag: json['b'],
-    name: json['d'],
-    rotation: json['c']);
-
+    rotation: json['rotation'],
+    width: json['width'],
+    height: json['height'],
+    densityDpi: json['densityDpi'],
+    refreshRate: json['refreshRate']?.toDouble(),
+    isPresentation: json['isPresentation'],
+    isExternal: json['isExternal'],
+    state: json['state'],
+);
 /// The default Display id, which is the id of the built-in primary display
 /// assuming there is one.
 const int DEFAULT_DISPLAY = 0;
@@ -89,6 +89,17 @@ const int FLAG_SECURE = 1 << 1;
 /// See [Display.flag]
 const int FLAG_PRIVATE = 1 << 2;
 
+/// Display flag: Indicates that the display is a presentation display.
+/// <p>
+/// A presentation display is a display that is suitable for displaying
+/// UI for presentation purposes such as an external monitor or a wireless
+/// display. Applications may automatically project their content to
+/// presentation displays to provide richer second screen experiences.
+/// </p>
+///
+/// See [Display.flag]
+const int FLAG_PRESENTATION = 1 << 3;
+
 /// Rotation constant: 0 degree rotation (natural orientation)
 const int ROTATION_0 = 0;
 
@@ -122,7 +133,7 @@ class Display {
   /// Returns a combination of flags that describe the capabilities of the display.
   /// @return The display flags.
   ///
-  /// See [FLAG_SUPPORTS_PROTECTED_BUFFERS], [FLAG_SECURE], [FLAG_PRIVATE]
+  /// See [FLAG_SUPPORTS_PROTECTED_BUFFERS], [FLAG_SECURE], [FLAG_PRIVATE], [FLAG_PRESENTATION]
   int? flag;
 
   /// Returns the rotation of the screen from its "natural" orientation.
@@ -147,6 +158,50 @@ class Display {
   /// @return The display's name.
   String? name;
 
-  Display(
-      {required this.displayId, this.flag, required this.name, this.rotation});
+  /// Gets the width of the display in pixels.
+  int? width;
+
+  /// Gets the height of the display in pixels.
+  int? height;
+
+  /// Gets the density of the display in dots per inch.
+  int? densityDpi;
+
+  /// Gets the refresh rate of the display in frames per second.
+  double? refreshRate;
+
+  /// Indicates whether this display supports presentation mode.
+  bool? isPresentation;
+
+  /// Indicates whether this is an external display.
+  bool? isExternal;
+
+  /// Gets the state of the display (1 = ON, 0 = OFF).
+  int? state;
+
+  Display({
+    required this.displayId, 
+    this.flag, 
+    required this.name, 
+    this.rotation,
+    this.width,
+    this.height,
+    this.densityDpi,
+    this.refreshRate,
+    this.isPresentation,
+    this.isExternal,
+    this.state
+  });
+
+  /// Returns true if this display supports presentation mode.
+  bool get supportsPresentation => isPresentation == true;
+
+  /// Returns true if this is an external display.
+  bool get isExternalDisplay => isExternal == true;
+
+  /// Returns the display resolution as a string.
+  String get resolution => '${width ?? 0}x${height ?? 0}';
+
+  /// Returns true if the display is currently on.
+  bool get isOn => state == 1;
 }

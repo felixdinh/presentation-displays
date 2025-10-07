@@ -63,19 +63,13 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
   }
 
   override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-    Log.i(TAG, "Channel: method: ${call.method} | arguments: ${call.arguments}")
     when (call.method) {
       "showPresentation" -> {
         try {
           val obj = JSONObject(call.arguments as String)
-          Log.i(
-              TAG,
-              "Channel: method: ${call.method} | displayId: ${obj.getInt("displayId")} | routerName: ${
-              obj.getString("routerName")
-            }"
-          )
           val displayId: Int = obj.getInt("displayId")
           val tag: String = obj.getString("routerName")
+          
           val display = displayManager?.getDisplay(displayId)
           if (display != null) {
             val flutterEngine = createFlutterEngine(tag)
@@ -83,49 +77,63 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
               flutterEngineChannel =
                   MethodChannel(it.dartExecutor.binaryMessenger, "${viewTypeId}_engine")
               presentation = context?.let { it1 -> PresentationDisplay(it1, tag, display) }
-              Log.i(TAG, "presentation: $presentation")
               presentation?.show()
-
               result.success(true)
             }
-                ?: result.error("404", "Can't find FlutterEngine", null)
+                ?: result.error("FLUTTER_ENGINE_ERROR", "Failed to create FlutterEngine for tag: $tag", null)
           } else {
-            result.error("404", "Can't find display with displayId is $displayId", null)
+            result.error("DISPLAY_NOT_FOUND", "Can't find display with displayId: $displayId", null)
           }
         } catch (e: Exception) {
-          result.error(call.method, e.message, null)
+          Log.e(TAG, "Error in showPresentation: ${e.message}", e)
+          result.error("SHOW_PRESENTATION_ERROR", e.message ?: "Unknown error occurred", null)
         }
       }
       "hidePresentation" -> {
         try {
           val obj = JSONObject(call.arguments as String)
-          Log.i(TAG, "Channel: method: ${call.method} | displayId: ${obj.getInt("displayId")}")
+          val displayId: Int = obj.getInt("displayId")
 
-          presentation?.dismiss()
-          presentation = null
-          result.success(true)
+          if (presentation != null) {
+            presentation?.dismiss()
+            presentation = null
+            result.success(true)
+          } else {
+            result.success(false)
+          }
         } catch (e: Exception) {
-          result.error(call.method, e.message, null)
+          Log.e(TAG, "Error in hidePresentation: ${e.message}", e)
+          result.error("HIDE_PRESENTATION_ERROR", e.message ?: "Unknown error occurred", null)
         }
       }
       "listDisplay" -> {
-        val listJson = ArrayList<DisplayJson>()
-        val category = call.arguments
-        val displays = displayManager?.getDisplays(category as String?)
-        if (displays != null) {
-          for (display: Display in displays) {
-            Log.i(TAG, "display: $display")
-            val d = DisplayJson(display.displayId, display.flags, display.rotation, display.name)
-            listJson.add(d)
+        try {
+          val listJson = ArrayList<DisplayJson>()
+          val category = call.arguments as String?
+          
+          val displays = displayManager?.getDisplays(category)
+          if (displays != null) {
+            for (display: Display in displays) {
+              val d = DisplayJson.fromDisplay(display)
+              listJson.add(d)
+            }
           }
+          result.success(Gson().toJson(listJson))
+        } catch (e: Exception) {
+          Log.e(TAG, "Error in listDisplay: ${e.message}", e)
+          result.error("LIST_DISPLAY_ERROR", e.message ?: "Unknown error occurred", null)
         }
-        result.success(Gson().toJson(listJson))
       }
       "transferDataToPresentation" -> {
         try {
-          flutterEngineChannel?.invokeMethod("DataTransfer", call.arguments)
-          result.success(true)
+          if (flutterEngineChannel != null) {
+            flutterEngineChannel?.invokeMethod("DataTransfer", call.arguments)
+            result.success(true)
+          } else {
+            result.success(false)
+          }
         } catch (e: Exception) {
+          Log.e(TAG, "Error in transferDataToPresentation: ${e.message}", e)
           result.success(false)
         }
       }

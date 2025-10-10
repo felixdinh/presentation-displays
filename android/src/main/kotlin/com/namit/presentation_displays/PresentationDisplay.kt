@@ -30,6 +30,8 @@ class PresentationDisplay(context: Context, private val tag: String, display: Di
         val flutterEngine = FlutterEngineCache.getInstance().get(tag)
         if (flutterEngine != null) {
             flutterView.attachToFlutterEngine(flutterEngine)
+            // Notify plugin that the presentation's FlutterView is attached and ready
+            PresentationDisplaysPlugin.instance?.notifyPresentationReady(tag)
         } else {
             Log.e("PresentationDisplay", "Can't find the FlutterEngine with cache name $tag")
         }

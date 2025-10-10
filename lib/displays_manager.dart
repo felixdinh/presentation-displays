@@ -10,6 +10,7 @@ const _listDisplay = "listDisplay";
 const _showPresentation = "showPresentation";
 const _hidePresentation = "hidePresentation";
 const _transferDataToPresentation = "transferDataToPresentation";
+const _prewarmEngine = "prewarmEngine";
 
 /// Display category: secondary display.
 /// <p>
@@ -58,13 +59,24 @@ class DisplayManager {
   ///
   /// See [DISPLAY_CATEGORY_PRESENTATION]
   Future<List<Display>?> getDisplays({String? category}) async {
-    List<dynamic> origins = await jsonDecode((await _displayMethodChannel
-            ?.invokeMethod(_listDisplay, category))) ??
-        [];
+    final dynamic raw = await _displayMethodChannel?.invokeMethod(_listDisplay, category);
+    List<dynamic> origins = [];
+
+    if (raw is List) {
+      origins = raw;
+    } else if (raw is String) {
+      origins = jsonDecode(raw) ?? [];
+    }
+
     List<Display> displays = [];
     for (var element in origins) {
-      final map = jsonDecode(jsonEncode(element));
-      displays.add(displayFromJson(map as Map<String, dynamic>));
+      // element may already be a Map or a decoded JSON object
+      if (element is Map) {
+        displays.add(displayFromJson(Map<String, dynamic>.from(element)));
+      } else {
+        final map = jsonDecode(jsonEncode(element));
+        displays.add(displayFromJson(map as Map<String, dynamic>));
+      }
     }
     return displays;
   }
@@ -115,12 +127,10 @@ class DisplayManager {
   /// return [Future<bool>] about the status has been display or not
   Future<bool?>? showSecondaryDisplay(
       {required int displayId, required String routerName}) async {
-    return await _displayMethodChannel?.invokeMethod<bool?>(
-        _showPresentation,
-        "{"
-        "\"displayId\": $displayId,"
-        "\"routerName\": \"$routerName\""
-        "}");
+    return await _displayMethodChannel?.invokeMethod<bool?>(_showPresentation, <String, dynamic>{
+      'displayId': displayId,
+      'routerName': routerName,
+    });
   }
 
   /// Hides secondary display that is attached to the specified display
@@ -130,11 +140,9 @@ class DisplayManager {
   ///
   /// return [Future<bool>] about the status has been display or not
   Future<bool?>? hideSecondaryDisplay({required int displayId}) async {
-    return await _displayMethodChannel?.invokeMethod<bool?>(
-        _hidePresentation,
-        "{"
-        "\"displayId\": $displayId"
-        "}");
+    return await _displayMethodChannel?.invokeMethod<bool?>(_hidePresentation, <String, dynamic>{
+      'displayId': displayId,
+    });
   }
 
   /// Transfer data to a secondary display
@@ -192,6 +200,17 @@ class DisplayManager {
   Future<bool?>? transferDataToPresentation(dynamic arguments) async {
     return await _displayMethodChannel?.invokeMethod<bool?>(
         _transferDataToPresentation, arguments);
+  }
+
+  /// Prewarm a FlutterEngine for a given [routerName]. This creates and starts
+  /// a cached engine on the native side using the same entrypoint
+  /// (`secondaryDisplayMain`) and initial route used when showing a presentation.
+  ///
+  /// Use this to reduce UI jank when presenting a secondary display by
+  /// preparing the engine ahead of time.
+  Future<bool?>? prewarmEngine({required String routerName}) async {
+    return await _displayMethodChannel?.invokeMethod<bool?>(_prewarmEngine,
+        <String, dynamic>{'routerName': routerName});
   }
 
   /// Subscribe to the stream to get notifications about connected / disconnected displays

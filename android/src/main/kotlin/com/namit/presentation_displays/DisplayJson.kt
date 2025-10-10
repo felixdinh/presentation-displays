@@ -44,7 +44,9 @@ data class DisplayJson(
                 densityDpi = metrics.densityDpi,
                 refreshRate = display.refreshRate,
                 isPresentation = (display.flags and Display.FLAG_PRESENTATION) != 0,
-                isExternal = (display.flags and Display.FLAG_ROUND) == 0 && display.displayId != 0,
+                // Consider external if it's not the default primary display (id 0).
+                // Using FLAG_ROUND is incorrect for detecting external displays.
+                isExternal = display.displayId != 0,
                 state = if (display.state == Display.STATE_ON) 1 else 0
             )
         }

@@ -1,6 +1,5 @@
 package com.namit.presentation_displays
 
-import android.content.ContentValues.TAG
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.os.Handler
@@ -21,6 +20,8 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
 
+private const val PLUGIN_TAG = "PresentationDisplaysPlugin"
+
 /**
  * PresentationDisplaysPlugin
  *
@@ -38,6 +39,9 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
   override fun onAttachedToEngine(
       @NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding
   ) {
+    // keep static instance reference for callbacks from PresentationDisplay
+    instance = this
+
     channel = MethodChannel(flutterPluginBinding.binaryMessenger, viewTypeId)
     channel.setMethodCallHandler(this)
 
@@ -53,6 +57,8 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
     private const val viewTypeId = "presentation_displays_plugin"
     private const val viewTypeEventsId = "presentation_displays_plugin_events"
     private var displayManager: DisplayManager? = null
+    // plugin instance for callbacks
+    internal var instance: PresentationDisplaysPlugin? = null
 
     // v1 embedding `registerWith` removed
   }
@@ -60,39 +66,93 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     channel.setMethodCallHandler(null)
     eventChannel.setStreamHandler(null)
+    instance = null
+  }
+
+  // Called by PresentationDisplay when the secondary FlutterView is attached and ready.
+  internal fun notifyPresentationReady(tag: String) {
+    try {
+      channel.invokeMethod("presentationReady", mapOf("routerName" to tag))
+    } catch (t: Throwable) {
+      Log.w(PLUGIN_TAG, "Failed to notify presentationReady: ${t.message}")
+    }
   }
 
   override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
     when (call.method) {
       "showPresentation" -> {
         try {
-          val obj = JSONObject(call.arguments as String)
-          val displayId: Int = obj.getInt("displayId")
-          val tag: String = obj.getString("routerName")
-          
+          var displayId: Int? = null
+          var tag: String? = null
+          when (val args = call.arguments) {
+            is Map<*, *> -> {
+              displayId = (args["displayId"] as? Number)?.toInt()
+              tag = args["routerName"] as? String
+            }
+            is String -> {
+              val obj = JSONObject(args)
+              displayId = obj.getInt("displayId")
+              tag = obj.getString("routerName")
+            }
+          }
+
+          if (displayId == null || tag == null) {
+            result.error("INVALID_ARGUMENTS", "displayId or routerName missing", null)
+            return
+          }
+
           val display = displayManager?.getDisplay(displayId)
           if (display != null) {
-            val flutterEngine = createFlutterEngine(tag)
+            val safeTag = tag // Create a local non-nullable reference
+            val flutterEngine = createFlutterEngine(safeTag)
             flutterEngine?.let {
+              // keep a reference to the last-used engine channel for backward compatibility
               flutterEngineChannel =
                   MethodChannel(it.dartExecutor.binaryMessenger, "${viewTypeId}_engine")
-              presentation = context?.let { it1 -> PresentationDisplay(it1, tag, display) }
+              presentation = context?.let { it1 -> PresentationDisplay(it1, safeTag, display) }
               presentation?.show()
               result.success(true)
             }
-                ?: result.error("FLUTTER_ENGINE_ERROR", "Failed to create FlutterEngine for tag: $tag", null)
+                ?: result.error("FLUTTER_ENGINE_ERROR", "Failed to create FlutterEngine for tag: $safeTag", null)
           } else {
             result.error("DISPLAY_NOT_FOUND", "Can't find display with displayId: $displayId", null)
           }
         } catch (e: Exception) {
-          Log.e(TAG, "Error in showPresentation: ${e.message}", e)
+          Log.e(PLUGIN_TAG, "Error in showPresentation: ${e.message}", e)
           result.error("SHOW_PRESENTATION_ERROR", e.message ?: "Unknown error occurred", null)
+        }
+      }
+      "prewarmEngine" -> {
+        try {
+          var tag: String? = null
+          when (val args = call.arguments) {
+            is Map<*, *> -> tag = args["routerName"] as? String
+            is String -> {
+              val obj = JSONObject(args)
+              tag = obj.optString("routerName")
+            }
+          }
+          val actualTag = tag ?: "presentation"
+          val engine = createFlutterEngine(actualTag)
+          if (engine != null) result.success(true) else result.success(false)
+        } catch (e: Exception) {
+          Log.e(PLUGIN_TAG, "Error in prewarmEngine: ${e.message}", e)
+          result.error("PREWARM_ERROR", e.message ?: "Unknown error", null)
         }
       }
       "hidePresentation" -> {
         try {
-          val obj = JSONObject(call.arguments as String)
-          val displayId: Int = obj.getInt("displayId")
+          // Accept Map or String arguments; displayId is optional for current behavior
+          when (val args = call.arguments) {
+            is Map<*, *> -> {
+              // we currently ignore the displayId and dismiss any active presentation
+            }
+            is String -> {
+              // try to parse but we don't specifically need displayId to hide
+              val obj = JSONObject(args)
+              obj.optInt("displayId")
+            }
+          }
 
           if (presentation != null) {
             presentation?.dismiss()
@@ -102,7 +162,7 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
             result.success(false)
           }
         } catch (e: Exception) {
-          Log.e(TAG, "Error in hidePresentation: ${e.message}", e)
+          Log.e(PLUGIN_TAG, "Error in hidePresentation: ${e.message}", e)
           result.error("HIDE_PRESENTATION_ERROR", e.message ?: "Unknown error occurred", null)
         }
       }
@@ -110,7 +170,7 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
         try {
           val listJson = ArrayList<DisplayJson>()
           val category = call.arguments as String?
-          
+
           val displays = displayManager?.getDisplays(category)
           if (displays != null) {
             for (display: Display in displays) {
@@ -120,20 +180,48 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
           }
           result.success(Gson().toJson(listJson))
         } catch (e: Exception) {
-          Log.e(TAG, "Error in listDisplay: ${e.message}", e)
+          Log.e(PLUGIN_TAG, "Error in listDisplay: ${e.message}", e)
           result.error("LIST_DISPLAY_ERROR", e.message ?: "Unknown error occurred", null)
         }
       }
       "transferDataToPresentation" -> {
         try {
-          if (flutterEngineChannel != null) {
-            flutterEngineChannel?.invokeMethod("DataTransfer", call.arguments)
-            result.success(true)
-          } else {
-            result.success(false)
+          // Support envelope { "routerName": "tag", "payload": ... }
+          when (val args = call.arguments) {
+            is Map<*, *> -> {
+              val router = args["routerName"] as? String
+              val payload = args["payload"] ?: args
+              if (router != null) {
+                val engine = FlutterEngineCache.getInstance().get(router)
+                if (engine != null) {
+                  val channelForEngine = MethodChannel(engine.dartExecutor.binaryMessenger, "${viewTypeId}_engine")
+                  channelForEngine.invokeMethod("DataTransfer", payload)
+                  result.success(true)
+                } else {
+                  // router specified but engine not found
+                  result.success(false)
+                }
+              } else {
+                // no router specified: fallback to last engine channel
+                if (flutterEngineChannel != null) {
+                  flutterEngineChannel?.invokeMethod("DataTransfer", payload)
+                  result.success(true)
+                } else {
+                  result.success(false)
+                }
+              }
+            }
+            else -> {
+              if (flutterEngineChannel != null) {
+                flutterEngineChannel?.invokeMethod("DataTransfer", call.arguments)
+                result.success(true)
+              } else {
+                result.success(false)
+              }
+            }
           }
         } catch (e: Exception) {
-          Log.e(TAG, "Error in transferDataToPresentation: ${e.message}", e)
+          Log.e(PLUGIN_TAG, "Error in transferDataToPresentation: ${e.message}", e)
           result.success(false)
         }
       }

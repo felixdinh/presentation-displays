@@ -34,7 +34,7 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
   private lateinit var eventChannel: EventChannel
   private var flutterEngineChannel: MethodChannel? = null
   private var context: Context? = null
-  private var presentation: PresentationDisplay? = null
+  private val activePresentations = mutableMapOf<String, PresentationDisplay>()
 
   override fun onAttachedToEngine(
       @NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding
@@ -66,6 +66,12 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     channel.setMethodCallHandler(null)
     eventChannel.setStreamHandler(null)
+    
+    activePresentations.values.forEach { presentation ->
+      dismissPresentationSafely(presentation)
+    }
+    activePresentations.clear()
+    
     instance = null
   }
 
@@ -75,6 +81,16 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
       channel.invokeMethod("presentationReady", mapOf("routerName" to tag))
     } catch (t: Throwable) {
       Log.w(PLUGIN_TAG, "Failed to notify presentationReady: ${t.message}")
+    }
+  }
+
+  // Safely dismiss a presentation with proper cleanup
+  private fun dismissPresentationSafely(presentation: PresentationDisplay) {
+    try {
+      Log.d(PLUGIN_TAG, "Dismissing presentation for tag: ${presentation.tag}")
+      presentation.dismiss()
+    } catch (e: Exception) {
+      Log.e(PLUGIN_TAG, "Error dismissing presentation for tag ${presentation.tag}: ${e.message}", e)
     }
   }
 
@@ -109,8 +125,13 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
               // keep a reference to the last-used engine channel for backward compatibility
               flutterEngineChannel =
                   MethodChannel(it.dartExecutor.binaryMessenger, "${viewTypeId}_engine")
-              presentation = context?.let { it1 -> PresentationDisplay(it1, safeTag, display) }
-              presentation?.show()
+              
+              // THAY ĐỔI: Tạo và lưu presentation vào Map
+              val presentation = context?.let { it1 -> PresentationDisplay(it1, safeTag, display) }
+              presentation?.let { pres ->
+                activePresentations[safeTag] = pres
+                pres.show()
+              }
               result.success(true)
             }
                 ?: result.error("FLUTTER_ENGINE_ERROR", "Failed to create FlutterEngine for tag: $safeTag", null)
@@ -142,25 +163,67 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
       }
       "hidePresentation" -> {
         try {
-          // Accept Map or String arguments; displayId is optional for current behavior
+          var displayId: Int? = null
+          var routerName: String? = null
+          
           when (val args = call.arguments) {
             is Map<*, *> -> {
-              // we currently ignore the displayId and dismiss any active presentation
+              displayId = (args["displayId"] as? Number)?.toInt()
+              routerName = args["routerName"] as? String
             }
             is String -> {
-              // try to parse but we don't specifically need displayId to hide
-              val obj = JSONObject(args)
-              obj.optInt("displayId")
+              // Backward compatibility: treat as routerName
+              routerName = args
             }
           }
-
-          if (presentation != null) {
-            presentation?.dismiss()
-            presentation = null
-            result.success(true)
-          } else {
-            result.success(false)
+          
+          val success = when {
+            // Priority 1: Both specified - exact match
+            displayId != null && routerName != null -> {
+              val presentation = activePresentations[routerName]
+              if (presentation?.display?.displayId == displayId) {
+                dismissPresentationSafely(presentation)
+                activePresentations.remove(routerName)
+                true
+              } else {
+                Log.w(PLUGIN_TAG, "Mismatch: routerName=$routerName, displayId=$displayId")
+                false
+              }
+            }
+            
+            // Priority 2: routerName only
+            routerName != null -> {
+              activePresentations[routerName]?.let {
+                dismissPresentationSafely(it)
+                activePresentations.remove(routerName)
+                true
+              } ?: false
+            }
+            
+            // Priority 3: displayId only
+            displayId != null -> {
+              val presentation = activePresentations.values.find { 
+                it.display.displayId == displayId 
+              }
+              presentation?.let {
+                dismissPresentationSafely(it)
+                activePresentations.remove(it.tag)
+                true
+              } ?: false
+            }
+            
+            // Priority 4: Hide all
+            else -> {
+              val count = activePresentations.size
+              activePresentations.values.forEach { presentation ->
+                dismissPresentationSafely(presentation)
+              }
+              activePresentations.clear()
+              count > 0
+            }
           }
+          
+          result.success(success)
         } catch (e: Exception) {
           Log.e(PLUGIN_TAG, "Error in hidePresentation: ${e.message}", e)
           result.error("HIDE_PRESENTATION_ERROR", e.message ?: "Unknown error occurred", null)
@@ -223,6 +286,28 @@ class PresentationDisplaysPlugin : FlutterPlugin, ActivityAware, MethodChannel.M
         } catch (e: Exception) {
           Log.e(PLUGIN_TAG, "Error in transferDataToPresentation: ${e.message}", e)
           result.success(false)
+        }
+      }
+      "hideAllPresentations" -> {
+        try {
+          val count = activePresentations.size
+          activePresentations.values.forEach { presentation ->
+            dismissPresentationSafely(presentation)
+          }
+          activePresentations.clear()
+          result.success(count)
+        } catch (e: Exception) {
+          Log.e(PLUGIN_TAG, "Error in hideAllPresentations: ${e.message}", e)
+          result.error("HIDE_ALL_PRESENTATIONS_ERROR", e.message ?: "Unknown error occurred", null)
+        }
+      }
+      "getActivePresentations" -> {
+        try {
+          val activeTags = activePresentations.keys.toList()
+          result.success(activeTags)
+        } catch (e: Exception) {
+          Log.e(PLUGIN_TAG, "Error in getActivePresentations: ${e.message}", e)
+          result.error("GET_ACTIVE_PRESENTATIONS_ERROR", e.message ?: "Unknown error occurred", null)
         }
       }
     }

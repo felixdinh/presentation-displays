@@ -10,8 +10,11 @@ import android.widget.FrameLayout
 import io.flutter.embedding.android.FlutterView
 import io.flutter.embedding.engine.FlutterEngineCache
 
-class PresentationDisplay(context: Context, private val tag: String, display: Display) :
+class PresentationDisplay(context: Context, val tag: String, display: Display) :
     Presentation(context, display) {
+
+    private var flutterView: FlutterView? = null
+    private var flutterEngine: io.flutter.embedding.engine.FlutterEngine? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,15 +28,39 @@ class PresentationDisplay(context: Context, private val tag: String, display: Di
 
         setContentView(flContainer)
 
-        val flutterView = FlutterView(context)
+        flutterView = FlutterView(context)
         flContainer.addView(flutterView, params)
-        val flutterEngine = FlutterEngineCache.getInstance().get(tag)
+        flutterEngine = FlutterEngineCache.getInstance().get(tag)
         if (flutterEngine != null) {
-            flutterView.attachToFlutterEngine(flutterEngine)
+            flutterView?.attachToFlutterEngine(flutterEngine!!)
             // Notify plugin that the presentation's FlutterView is attached and ready
             PresentationDisplaysPlugin.instance?.notifyPresentationReady(tag)
         } else {
             Log.e("PresentationDisplay", "Can't find the FlutterEngine with cache name $tag")
+        }
+    }
+
+    override fun dismiss() {
+        try {
+            // Detach FlutterView from engine before dismissing
+            flutterView?.let { view ->
+                flutterEngine?.let { engine ->
+                    view.detachFromFlutterEngine()
+                }
+            }
+            
+            // Clear references
+            flutterView = null
+            flutterEngine = null
+            
+            // Call parent dismiss
+            super.dismiss()
+            
+            Log.d("PresentationDisplay", "Presentation dismissed successfully for tag: $tag")
+        } catch (e: Exception) {
+            Log.e("PresentationDisplay", "Error during dismiss: ${e.message}", e)
+            // Still call parent dismiss even if cleanup fails
+            super.dismiss()
         }
     }
 }

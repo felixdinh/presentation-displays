@@ -11,6 +11,8 @@ const _showPresentation = "showPresentation";
 const _hidePresentation = "hidePresentation";
 const _transferDataToPresentation = "transferDataToPresentation";
 const _prewarmEngine = "prewarmEngine";
+const _hideAllPresentations = "hideAllPresentations";
+const _getActivePresentations = "getActivePresentations";
 
 /// Display category: secondary display.
 /// <p>
@@ -136,13 +138,32 @@ class DisplayManager {
   /// Hides secondary display that is attached to the specified display
   /// <p>
   /// [displayId] The id of display to which the secondary display should be attached.
+  /// [routerName] The router name of the presentation to hide.
+  /// If both are provided, will hide the exact match.
+  /// If only routerName is provided, will hide by router name.
+  /// If only displayId is provided, will hide by display ID.
+  /// If neither is provided, will hide all presentations.
   /// </P>
   ///
   /// return [Future<bool>] about the status has been display or not
-  Future<bool?>? hideSecondaryDisplay({required int displayId}) async {
-    return await _displayMethodChannel?.invokeMethod<bool?>(_hidePresentation, <String, dynamic>{
-      'displayId': displayId,
-    });
+  Future<bool?>? hideSecondaryDisplay({int? displayId, String? routerName}) async {
+    final Map<String, dynamic> args = {};
+    if (displayId != null) args['displayId'] = displayId;
+    if (routerName != null) args['routerName'] = routerName;
+    
+    return await _displayMethodChannel?.invokeMethod<bool?>(_hidePresentation, args);
+  }
+
+  /// Hides all secondary displays and returns them to default state
+  /// <p>
+  /// This method ensures that all secondary displays are properly dismissed
+  /// and returned to their default state (usually showing the system wallpaper
+  /// or the last app that was displayed).
+  /// </p>
+  ///
+  /// return [Future<bool>] true if all presentations were successfully hidden
+  Future<bool?>? hideAllSecondaryDisplays() async {
+    return await _displayMethodChannel?.invokeMethod<bool?>(_hidePresentation, {});
   }
 
   /// Transfer data to a secondary display
@@ -211,6 +232,26 @@ class DisplayManager {
   Future<bool?>? prewarmEngine({required String routerName}) async {
     return await _displayMethodChannel?.invokeMethod<bool?>(_prewarmEngine,
         <String, dynamic>{'routerName': routerName});
+  }
+
+  /// Hides all active presentations
+  /// <p>
+  /// This will dismiss all currently active secondary displays.
+  /// </p>
+  ///
+  /// return [Future<int>] the number of presentations that were hidden
+  Future<int?>? hideAllPresentations() async {
+    return await _displayMethodChannel?.invokeMethod<int?>(_hideAllPresentations);
+  }
+
+  /// Gets the list of currently active presentation router names
+  /// <p>
+  /// This returns the router names of all presentations that are currently active.
+  /// </p>
+  ///
+  /// return [Future<List<String>>] list of active router names
+  Future<List<String>?>? getActivePresentations() async {
+    return await _displayMethodChannel?.invokeMethod<List<String>?>(_getActivePresentations);
   }
 
   /// Subscribe to the stream to get notifications about connected / disconnected displays
